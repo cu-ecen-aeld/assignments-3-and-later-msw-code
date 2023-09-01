@@ -1,4 +1,8 @@
 #include "systemcalls.h"
+#include <unistd.h>
+#include <fcntl.h>
+#include <stdlib.h>
+#include <sys/wait.h>
 
 /**
  * @param cmd the command to execute with system()
@@ -16,8 +20,14 @@ bool do_system(const char *cmd)
  *   and return a boolean true if the system() call completed with success
  *   or false() if it returned a failure
 */
-
-    return true;
+    bool ret = true;
+    
+    if(-1 == system(cmd))
+    {
+        ret = false;
+    }
+   
+    return ret;
 }
 
 /**
@@ -45,9 +55,6 @@ bool do_exec(int count, ...)
         command[i] = va_arg(args, char *);
     }
     command[count] = NULL;
-    // this line is to avoid a compile warning before your implementation is complete
-    // and may be removed
-    command[count] = command[count];
 
 /*
  * TODO:
@@ -58,10 +65,58 @@ bool do_exec(int count, ...)
  *   as second argument to the execv() command.
  *
 */
+ 
+    int status;
+    pid_t pid;
+    pid = fork();
+    bool ret = false;
+
+
+    /* Debug */
+    printf("PID:%d - Path to command is: %s\r\n", pid, command[0]);
+
+    /* -1 is error, skip past to return false */
+    if(pid >= 0)
+    {
+        /* PID of 0 means child process running */
+        if(0 == pid)
+        {
+            printf("PID:%d - Execv: %s\r\n", pid, command[0]);	
+
+            /* Command 0 is the path to the command, from command[1] onwards is argv */
+            execv(command[0], command);
+
+	    printf("PID:%d - Execv failed!\r\n", pid);
+
+            /* If execv returns it must have failed */
+	    exit(EXIT_FAILURE);
+        }
+
+        /* Fork returns PID of child if successful */
+        if(pid > 0)
+        {   
+            /* Wait on the process to complete */
+            if(waitpid(pid, &status, 0) > 0)
+            {
+                printf("Wait PID returns\r\n");
+
+                /* Check the exit status */                
+                if(WIFEXITED(status))
+		{
+		    /* Normal exit status */
+		    if(0 == WEXITSTATUS(status))
+		    {
+			/* We only return true if exited normally and exited without error */
+		        ret = true;
+		    }
+		}       
+            }
+        }
+    }
 
     va_end(args);
 
-    return true;
+    return ret;
 }
 
 /**
@@ -80,10 +135,6 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
         command[i] = va_arg(args, char *);
     }
     command[count] = NULL;
-    // this line is to avoid a compile warning before your implementation is complete
-    // and may be removed
-    command[count] = command[count];
-
 
 /*
  * TODO
@@ -92,8 +143,61 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
  *   The rest of the behaviour is same as do_exec()
  *
 */
+    bool ret = false;
+    int status;
+    pid_t pid;
 
+    /* Create file to write to, new file if exists */
+    int fd = open(outputfile, O_WRONLY | O_TRUNC | O_CREAT, 0644);
+
+    /* Check file created */
+    if(fd >= 0)
+    {
+        pid = fork();
+
+        /* -1 is error, skip past to return false */
+        if(pid >= 0)
+        {
+            /* PID of 0 means child process running */
+            if(0 == pid)
+            {
+                /* Replace file descriptor with 1 (std out) so std out goes to file */
+                if(dup2(fd, 1) >= 0)
+                {           
+                    close(fd);
+
+                    /* Command 0 is the path to the command, from command[1] onwards is argv */
+                    execv(command[0], command);
+
+                    /* If execv returns it must have failed */
+		    exit(EXIT_FAILURE);
+                }
+            }
+
+            /* Fork returns PID of child if successful */
+            if(pid > 0)
+            {
+                /* Wait on the process to complete */
+                if(waitpid(pid, &status, 0) > 0)
+                {
+                    /* Check the exit status */
+                    if(WIFEXITED(status))
+                    {
+                        /* Normal exit status */
+                        if(0 == WEXITSTATUS(status))
+                        {
+                            /* We only return true if exited normally and exited without error */
+                            ret = true;
+                        }
+                    }
+		}
+
+                close(fd);
+            }
+        }
+    }
     va_end(args);
 
-    return true;
+    return ret;
 }
+
